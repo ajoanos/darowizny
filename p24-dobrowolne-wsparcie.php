@@ -797,6 +797,12 @@ class P24_Dobrowolne_Wsparcie {
         $raw  = file_get_contents( 'php://input' );
         $data = json_decode( $raw, true );
 
+        // Przelewy24 przesyła urlStatus jako application/x-www-form-urlencoded,
+        // więc musimy obsłużyć zarówno JSON jak i $_POST.
+        if ( empty( $data ) && ! empty( $_POST ) ) {
+            $data = wp_unslash( $_POST );
+        }
+
         if ( empty( $data ) || empty( $data['sessionId'] ) ) {
             status_header( 400 );
             echo 'ERROR: no data';
@@ -843,11 +849,7 @@ class P24_Dobrowolne_Wsparcie {
             exit;
         }
 
-        // Oznaczamy jako success + mail
-        $this->mark_transaction_success( $data['sessionId'] );
-        $this->send_notification_email( $data['sessionId'] );
-
-        // Opcjonalny verify – wynik nie blokuje statusu
+        // Opcjonalny verify – teraz wykorzystujemy go do ustawienia statusu
         $verify_sign_data = [
             'sessionId' => $data['sessionId'],
             'orderId'   => (int) $data['orderId'],
@@ -878,7 +880,7 @@ class P24_Dobrowolne_Wsparcie {
         $endpoint = $api_base . '/api/v1/transaction/verify';
         $auth     = base64_encode( $pos_id . ':' . $api_key );
 
-        wp_remote_post( $endpoint, [
+        $verify_response = wp_remote_post( $endpoint, [
             'headers' => [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Basic ' . $auth,
@@ -887,21 +889,42 @@ class P24_Dobrowolne_Wsparcie {
             'timeout' => 20,
         ] );
 
+        $verify_code = wp_remote_retrieve_response_code( $verify_response );
+        $verify_body_resp = wp_remote_retrieve_body( $verify_response );
+        $verify_data = json_decode( $verify_body_resp, true );
+
+        $verified_success = (
+            $verify_code === 200 &&
+            ! empty( $verify_data['data']['status'] ) &&
+            $verify_data['data']['status'] === 'success'
+        );
+
+        if ( $verified_success ) {
+            $this->mark_transaction_status( $data['sessionId'], 'success' );
+            $this->send_notification_email( $data['sessionId'] );
+        } else {
+            $this->mark_transaction_status( $data['sessionId'], 'failed' );
+        }
+
         status_header( 200 );
         echo 'OK';
         exit;
     }
 
     /**
-     * Oznaczenie transakcji jako success
+     * Oznaczenie transakcji jako success / failed
      */
-    protected function mark_transaction_success( $session_id ) {
+    protected function mark_transaction_status( $session_id, $status ) {
+        if ( ! in_array( $status, [ 'success', 'failed' ], true ) ) {
+            return;
+        }
+
         global $wpdb;
         $table_name = $wpdb->prefix . self::TABLE_NAME;
 
         $wpdb->update(
             $table_name,
-            [ 'status' => 'success' ],
+            [ 'status' => $status ],
             [ 'session_id' => $session_id ],
             [ '%s' ],
             [ '%s' ]
@@ -942,18 +965,10 @@ class P24_Dobrowolne_Wsparcie {
     }
 
     /**
-     * Ładny komunikat "Dziękujemy" + fallback: oznacz success i wyślij maila po powrocie
+     * Ładny komunikat "Dziękujemy" po powrocie z Przelewy24
      */
     public function maybe_prepend_thankyou_message( $content ) {
         if ( isset( $_GET['p24_donation_status'] ) && $_GET['p24_donation_status'] === 'return' ) {
-
-            // Fallback – po powrocie na stronę oznaczamy transakcję jako success
-            // I TERAZ dodatkowo wysyłamy maila.
-            if ( ! empty( $_GET['p24_session'] ) ) {
-                $session_id = sanitize_text_field( $_GET['p24_session'] );
-                $this->mark_transaction_success( $session_id );
-                $this->send_notification_email( $session_id );
-            }
 
             $msg = '
             <div class="p24-thanks-wrapper">
