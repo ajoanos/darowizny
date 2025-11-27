@@ -947,7 +947,9 @@ class P24_Dobrowolne_Wsparcie {
             $this->mark_transaction_status( $session_id, 'success' );
             $this->send_notification_email( $session_id );
         } else {
-            $this->mark_transaction_status( $session_id, 'failed' );
+            // Nie oznaczamy jako failed, bo verify mogło nie zadziałać z powodu
+            // chwilowego błędu sieciowego lub API – zostawiamy istniejący status
+            // (np. initiated) aby nie zaniżyć poprawnej wpłaty.
         }
 
         status_header( 200 );
