@@ -803,7 +803,15 @@ class P24_Dobrowolne_Wsparcie {
             $data = wp_unslash( $_POST );
         }
 
-        if ( empty( $data ) || empty( $data['sessionId'] ) ) {
+        // Sandbox potrafi dostarczyć dane jako zwykłe parametry querystring (GET),
+        // więc stosujemy jeszcze jeden fallback na $_REQUEST, jeśli nadal brak treści.
+        if ( empty( $data ) && ! empty( $_REQUEST ) ) {
+            $data = wp_unslash( $_REQUEST );
+        }
+
+        $session_id = ! empty( $data['sessionId'] ) ? $data['sessionId'] : '';
+
+        if ( empty( $data ) || empty( $session_id ) ) {
             status_header( 400 );
             echo 'ERROR: no data';
             exit;
@@ -824,6 +832,7 @@ class P24_Dobrowolne_Wsparcie {
         }
 
         if ( empty( $data['sign'] ) || empty( $data['orderId'] ) || empty( $data['amount'] ) || empty( $data['currency'] ) ) {
+            $this->mark_transaction_status( $session_id, 'failed' );
             status_header( 400 );
             echo 'ERROR: invalid data';
             exit;
@@ -835,7 +844,7 @@ class P24_Dobrowolne_Wsparcie {
         $row = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT status, amount, currency FROM {$table_name} WHERE session_id = %s LIMIT 1",
-                $data['sessionId']
+                $session_id
             ),
             ARRAY_A
         );
@@ -848,6 +857,7 @@ class P24_Dobrowolne_Wsparcie {
 
         // Sprawdzenie zgodności kwoty/currency z tym, co zapisaliśmy w bazie
         if ( (int) $row['amount'] !== (int) $data['amount'] || $row['currency'] !== $data['currency'] ) {
+            $this->mark_transaction_status( $session_id, 'failed' );
             status_header( 400 );
             echo 'ERROR: amount mismatch';
             exit;
@@ -855,7 +865,7 @@ class P24_Dobrowolne_Wsparcie {
 
         // Jeśli P24 przekazało status od razu, respektujemy go zanim wyślemy verify
         if ( ! empty( $data['status'] ) && strtolower( $data['status'] ) !== 'success' ) {
-            $this->mark_transaction_status( $data['sessionId'], 'failed' );
+            $this->mark_transaction_status( $session_id, 'failed' );
             status_header( 200 );
             echo 'OK';
             exit;
@@ -863,7 +873,7 @@ class P24_Dobrowolne_Wsparcie {
 
         // Weryfikacja sign z notyfikacji
         $sign_check_data = [
-            'sessionId' => $data['sessionId'],
+            'sessionId' => $session_id,
             'orderId'   => (int) $data['orderId'],
             'amount'    => (int) $data['amount'],
             'currency'  => $data['currency'],
@@ -876,6 +886,7 @@ class P24_Dobrowolne_Wsparcie {
         );
 
         if ( $sign_check !== $data['sign'] ) {
+            $this->mark_transaction_status( $session_id, 'failed' );
             status_header( 400 );
             echo 'ERROR: bad sign';
             exit;
@@ -883,7 +894,7 @@ class P24_Dobrowolne_Wsparcie {
 
         // Opcjonalny verify – teraz wykorzystujemy go do ustawienia statusu
         $verify_sign_data = [
-            'sessionId' => $data['sessionId'],
+            'sessionId' => $session_id,
             'orderId'   => (int) $data['orderId'],
             'amount'    => (int) $data['amount'],
             'currency'  => $data['currency'],
@@ -898,7 +909,7 @@ class P24_Dobrowolne_Wsparcie {
         $verify_body = [
             'merchantId' => (int) $merchant_id,
             'posId'      => (int) $pos_id,
-            'sessionId'  => $data['sessionId'],
+            'sessionId'  => $session_id,
             'amount'     => (int) $data['amount'],
             'currency'   => $data['currency'],
             'orderId'    => (int) $data['orderId'],
@@ -933,10 +944,10 @@ class P24_Dobrowolne_Wsparcie {
         );
 
         if ( $verified_success ) {
-            $this->mark_transaction_status( $data['sessionId'], 'success' );
-            $this->send_notification_email( $data['sessionId'] );
+            $this->mark_transaction_status( $session_id, 'success' );
+            $this->send_notification_email( $session_id );
         } else {
-            $this->mark_transaction_status( $data['sessionId'], 'failed' );
+            $this->mark_transaction_status( $session_id, 'failed' );
         }
 
         status_header( 200 );
