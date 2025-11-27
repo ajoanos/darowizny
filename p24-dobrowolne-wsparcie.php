@@ -965,30 +965,10 @@ class P24_Dobrowolne_Wsparcie {
     }
 
     /**
-     * Ładny komunikat "Dziękujemy" + fallback: oznacz success i wyślij maila po powrocie
+     * Ładny komunikat "Dziękujemy" po powrocie z Przelewy24
      */
     public function maybe_prepend_thankyou_message( $content ) {
         if ( isset( $_GET['p24_donation_status'] ) && $_GET['p24_donation_status'] === 'return' ) {
-
-            // Fallback – po powrocie na stronę próbujemy oznaczyć transakcję jako success
-            // tylko jeśli w bazie wciąż widnieje status „initiated”.
-            if ( ! empty( $_GET['p24_session'] ) ) {
-                $session_id = sanitize_text_field( $_GET['p24_session'] );
-
-                global $wpdb;
-                $table_name     = $wpdb->prefix . self::TABLE_NAME;
-                $current_status = $wpdb->get_var(
-                    $wpdb->prepare(
-                        "SELECT status FROM {$table_name} WHERE session_id = %s LIMIT 1",
-                        $session_id
-                    )
-                );
-
-                if ( $current_status === 'initiated' ) {
-                    $this->mark_transaction_status( $session_id, 'success' );
-                    $this->send_notification_email( $session_id );
-                }
-            }
 
             $msg = '
             <div class="p24-thanks-wrapper">
