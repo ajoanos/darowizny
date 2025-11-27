@@ -829,6 +829,38 @@ class P24_Dobrowolne_Wsparcie {
             exit;
         }
 
+        global $wpdb;
+        $table_name = $wpdb->prefix . self::TABLE_NAME;
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT status, amount, currency FROM {$table_name} WHERE session_id = %s LIMIT 1",
+                $data['sessionId']
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $row ) {
+            status_header( 400 );
+            echo 'ERROR: unknown session';
+            exit;
+        }
+
+        // Sprawdzenie zgodności kwoty/currency z tym, co zapisaliśmy w bazie
+        if ( (int) $row['amount'] !== (int) $data['amount'] || $row['currency'] !== $data['currency'] ) {
+            status_header( 400 );
+            echo 'ERROR: amount mismatch';
+            exit;
+        }
+
+        // Jeśli P24 przekazało status od razu, respektujemy go zanim wyślemy verify
+        if ( ! empty( $data['status'] ) && strtolower( $data['status'] ) !== 'success' ) {
+            $this->mark_transaction_status( $data['sessionId'], 'failed' );
+            status_header( 200 );
+            echo 'OK';
+            exit;
+        }
+
         // Weryfikacja sign z notyfikacji
         $sign_check_data = [
             'sessionId' => $data['sessionId'],
@@ -895,6 +927,7 @@ class P24_Dobrowolne_Wsparcie {
 
         $verified_success = (
             $verify_code === 200 &&
+            (int) ( $verify_data['error'] ?? 1 ) === 0 &&
             ! empty( $verify_data['data']['status'] ) &&
             $verify_data['data']['status'] === 'success'
         );
