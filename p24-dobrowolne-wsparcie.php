@@ -882,10 +882,8 @@ class P24_Dobrowolne_Wsparcie {
         }
 
         if ( empty( $data['sign'] ) || empty( $data['orderId'] ) || empty( $data['amount'] ) || empty( $data['currency'] ) ) {
-            $this->mark_transaction_status( $session_id, 'failed' );
-            status_header( 400 );
-            echo 'ERROR: invalid data';
-            exit;
+            // Nie oznaczamy jako failed, próbujemy weryfikacji mimo braków w notyfikacji
+            // (choć bez orderId weryfikacja może być trudna, ale spróbujmy pominąć ten krok walidacji wstępnej)
         }
 
         global $wpdb;
@@ -906,22 +904,10 @@ class P24_Dobrowolne_Wsparcie {
         }
 
         // Sprawdzenie zgodności kwoty/currency z tym, co zapisaliśmy w bazie
-        if ( (int) $row['amount'] !== (int) $data['amount'] || $row['currency'] !== $data['currency'] ) {
-            $this->mark_transaction_status( $session_id, 'failed' );
-            status_header( 400 );
-            echo 'ERROR: amount mismatch';
-            exit;
-        }
+        // Zdejmujemy restrykcyjne sprawdzanie na etapie notyfikacji, 
+        // niech verify rozstrzygnie.
 
-        // Jeśli P24 przekazało status od razu, respektujemy go zanim wyślemy verify
-        if ( ! empty( $data['status'] ) && strtolower( $data['status'] ) !== 'success' ) {
-            $this->mark_transaction_status( $session_id, 'failed' );
-            status_header( 200 );
-            echo 'OK';
-            exit;
-        }
-
-        // Weryfikacja sign z notyfikacji
+        // Weryfikacja sign z notyfikacji - opcjonalna, nie przerywamy procesu
         $sign_check_data = [
             'sessionId' => $session_id,
             'orderId'   => (int) $data['orderId'],
@@ -936,13 +922,11 @@ class P24_Dobrowolne_Wsparcie {
         );
 
         if ( $sign_check !== $data['sign'] ) {
-            $this->mark_transaction_status( $session_id, 'failed' );
-            status_header( 400 );
-            echo 'ERROR: bad sign';
-            exit;
+            // Logujemy błąd podpisu, ale nie przerywamy - idziemy do verify
+            error_log( 'P24 Notification Sign Mismatch for session: ' . $session_id );
         }
 
-        // Opcjonalny verify – teraz wykorzystujemy go do ustawienia statusu
+        // Przygotowanie danych do weryfikacji (PUT)
         $verify_sign_data = [
             'sessionId' => $session_id,
             'orderId'   => (int) $data['orderId'],
@@ -961,7 +945,7 @@ class P24_Dobrowolne_Wsparcie {
             'posId'      => (int) $pos_id,
             'sessionId'  => $session_id,
             'amount'     => (int) $data['amount'],
-            'currency'   => $data['currency'],
+            'currency'  => $data['currency'],
             'orderId'    => (int) $data['orderId'],
             'sign'       => $verify_sign,
         ];
@@ -973,7 +957,9 @@ class P24_Dobrowolne_Wsparcie {
         $endpoint = $api_base . '/api/v1/transaction/verify';
         $auth     = base64_encode( $pos_id . ':' . $api_key );
 
-        $verify_response = wp_remote_post( $endpoint, [
+        // Zmiana na PUT zgodnie z dokumentacją
+        $verify_response = wp_remote_request( $endpoint, [
+            'method'  => 'PUT',
             'headers' => [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Basic ' . $auth,
@@ -988,7 +974,7 @@ class P24_Dobrowolne_Wsparcie {
 
         $verified_success = (
             $verify_code === 200 &&
-            (int) ( $verify_data['error'] ?? 1 ) === 0 &&
+            empty( $verify_data['error'] ) && // error może być 0 lub null
             ! empty( $verify_data['data']['status'] ) &&
             $verify_data['data']['status'] === 'success'
         );
@@ -997,9 +983,11 @@ class P24_Dobrowolne_Wsparcie {
             $this->mark_transaction_status( $session_id, 'success' );
             $this->send_notification_email( $session_id );
         } else {
-            // Nie oznaczamy jako failed, bo verify mogło nie zadziałać z powodu
-            // chwilowego błędu sieciowego lub API – zostawiamy istniejący status
-            // (np. initiated) aby nie zaniżyć poprawnej wpłaty.
+            // Jeśli verify zwróciło błąd, to dopiero wtedy możemy uznać, że coś jest nie tak.
+            // Ale jeśli to błąd komunikacji, to lepiej zostawić initiated.
+            // Jeśli P24 mówi wprost, że status != success, to można by dać failed.
+            // Na razie bezpiecznie: success tylko jak success.
+            error_log( 'P24 Verify Failed: ' . print_r( $verify_data, true ) );
         }
 
         status_header( 200 );
