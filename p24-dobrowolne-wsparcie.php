@@ -529,6 +529,49 @@ class P24_Dobrowolne_Wsparcie {
                     content: "🔒";
                     font-size: 14px;
                 }
+                .p24-donation-card details.p24-privacy {
+                    margin-top: 10px;
+                    padding: 10px 14px;
+                    border-radius: 12px;
+                    border: 1px solid #e2e8f0;
+                    background: linear-gradient(135deg, #f8fafc, #ffffff);
+                    color: #334155;
+                    font-size: 12px;
+                    text-align: left;
+                }
+                .p24-donation-card details.p24-privacy summary {
+                    cursor: pointer;
+                    list-style: none;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-weight: 700;
+                }
+                .p24-donation-card details.p24-privacy summary::-webkit-details-marker {
+                    display: none;
+                }
+                .p24-donation-card details.p24-privacy summary::after {
+                    content: '▾';
+                    font-size: 11px;
+                    margin-left: auto;
+                    color: #f97316;
+                    transition: transform 0.18s ease;
+                }
+                .p24-donation-card details.p24-privacy[open] summary::after {
+                    transform: rotate(-180deg);
+                }
+                .p24-donation-card details.p24-privacy p {
+                    margin: 8px 0 0;
+                    line-height: 1.5;
+                }
+                .p24-donation-card details.p24-privacy a {
+                    color: #f97316;
+                    font-weight: 600;
+                    text-decoration: none;
+                }
+                .p24-donation-card details.p24-privacy a:hover {
+                    text-decoration: underline;
+                }
 
                 /* Styl dla komunikatu "Dziękujemy" */
                 .p24-thanks-wrapper {
@@ -599,6 +642,13 @@ class P24_Dobrowolne_Wsparcie {
                 <div class="p24-secure">
                     Płatność obsługiwana bezpiecznie przez Przelewy24
                 </div>
+
+                <details class="p24-privacy">
+                    <summary>Informacje o danych i płatności</summary>
+                    <p><strong>Administratorem danych osobowych</strong> jest Allemedia Arkadiusz Zając. Dane podawane w formularzu są przetwarzane w celu obsługi dobrowolnej darowizny oraz kontaktu z darczyńcą (jeśli to konieczne). Podanie danych jest dobrowolne, ale niezbędne do realizacji darowizny.</p>
+                    <p>Dane mogą być przekazywane operatorowi płatności Przelewy24 (PayPro S.A.). Masz prawo dostępu do danych, ich sprostowania, usunięcia i innych praw wynikających z RODO. Kontakt: <a href="mailto:zamowienia@allemedia.pl">zamowienia@allemedia.pl</a>.</p>
+                    <p>Polityka prywatności: <a href="https://allemedia.pl/polityka-prywatnosci" target="_blank" rel="noopener">https://allemedia.pl/polityka-prywatnosci</a></p>
+                </details>
             </form>
         </div>
         <?php
